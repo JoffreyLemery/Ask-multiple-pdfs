@@ -117,7 +117,7 @@ def handle_userinput(user_question):
 def display_page_title():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.title('Retrieve information among many PDFs')
+        st.title('Retrieve information among many PDFs with parents/child chunks chroma embedding')
         c1, c2, c3, c4 = st.columns(4, gap="large")
     st.markdown("""---""")
 

@@ -111,7 +111,7 @@ def handle_userinput(user_question):
 def display_page_title():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.title('Retrieve information among many PDFs')
+        st.title('Retrieve information among many PDFs with automatic tagging and Self-Query')
         c1, c2, c3, c4 = st.columns(4, gap="large")
     st.markdown("""---""")
 
@@ -156,7 +156,7 @@ def main():
                 big_chunks_retriever
                 )
 
-    st.header("Chat with multiple PDFs using Parent/Child relations :books:")
+    st.header("Chat with multiple PDFs using Self-Queries :books:")
     user_question = st.text_input("Ask a question about your documents:")
     if user_question:
         handle_userinput(user_question)
