@@ -3,7 +3,6 @@ from dotenv import dotenv_values
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
@@ -13,43 +12,29 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.retrievers import ParentDocumentRetriever
 from langchain.storage import InMemoryStore
 from langchain.vectorstores import Chroma
-from langchain.document_loaders import PyPDFLoader
-from langchain.document_loaders import DirectoryLoader
 
 
+#Parameter & variables
 tools.set_page_config()
 load_dotenv()
 images_path = tools.get_images_path()
 
+#Handle the title
+def display_page_title():
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.title('Retrieve information among many PDFs with automatic tagging and Self-Query')
+        c1, c2, c3, c4 = st.columns(4, gap="large")
+    st.markdown("""---""")
 
-# def get_pdf_text(pdf_docs):
-#     documents = []
-#     for pdf in pdf_docs:
-#         pdf_reader = PdfReader(pdf)
-#         for page in pdf_reader.pages:
-#             documents += page
-#             print('document : ', documents)
-#         print('document : ', documents)
-#     return documents
-
-# def load_pdf_documents(pdf_docs):
-#     loader = DirectoryLoader('', loader_cls=PyPDFLoader)
-#     documents = []
-
-#     for pdf in pdf_docs:
-#         with pdf:
-#             pdf_file = pdf.read()
-#             loader.add_file(pdf.name, pdf_file)
-
-#     return loader.load()
-
+#Class to construct documents in the same format as PDFLoader
 class Document:
     def __init__(self, page_content='', metadata=None):
         self.page_content = page_content
         self.metadata = metadata if metadata is not None else {}
 
+#Load through Streamlit
 def load_pdf_documents(uploaded_file):
-    
     if uploaded_file is not None:
         documents = []
         for pdf in uploaded_file:
@@ -63,7 +48,7 @@ def load_pdf_documents(uploaded_file):
                 i =+ 1
     return documents
 
-
+#Define Parent & Child Splitters
 def get_splitter():
     # This text splitter is used to create the parent documents - The big chunks
     parent_splitter = RecursiveCharacterTextSplitter(chunk_size=2000)
@@ -73,13 +58,14 @@ def get_splitter():
 
     return parent_splitter, child_splitter
 
-
+#Define the store and the vectorial dB in order to to semantic research on Child Chunk and work on parents chunk for queries
 def get_vectorstore():
     embeddings = OpenAIEmbeddings()
     vectorstore = Chroma(collection_name="split_parents", embedding_function=embeddings) 
     store = InMemoryStore()
     return store, vectorstore
 
+#Define Parent/Child retriever
 def retriever_parents(documents, vectorstore, store, child_splitter, parent_splitter):
     big_chunks_retriever = ParentDocumentRetriever(
     vectorstore=vectorstore,
@@ -90,6 +76,7 @@ def retriever_parents(documents, vectorstore, store, child_splitter, parent_spli
     big_chunks_retriever.add_documents(documents)
     return big_chunks_retriever
 
+#Establish conversation with the LLM
 def get_conversation_chain(big_chunks_retriever):
     llm = ChatOpenAI()
     memory = ConversationBufferMemory(
@@ -101,7 +88,7 @@ def get_conversation_chain(big_chunks_retriever):
     )
     return conversation_chain
 
-
+#Handle the print of the conversation
 def handle_userinput(user_question):
     response = st.session_state.conversation({'question': user_question})
     st.session_state.chat_history = response['chat_history']
@@ -113,13 +100,6 @@ def handle_userinput(user_question):
         else:
             st.write(bot_template.replace(
                 "{{MSG}}", message.content), unsafe_allow_html=True)
-
-def display_page_title():
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.title('Retrieve information among many PDFs with parents/child chunks chroma embedding')
-        c1, c2, c3, c4 = st.columns(4, gap="large")
-    st.markdown("""---""")
 
 
 def main():
