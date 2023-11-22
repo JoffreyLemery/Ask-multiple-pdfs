@@ -20,6 +20,8 @@ from langchain.document_transformers.openai_functions import create_metadata_tag
 from langchain.llms import OpenAI
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain.chains.query_constructor.base import AttributeInfo
+import tempfile
+import os
 
 #Parameter & variables
 tools.set_page_config()
@@ -83,28 +85,25 @@ class Document:
         self.metadata = metadata if metadata is not None else {}
 
 #Load through Streamlit
-def load_pdf_documents(uploaded_file):
-    if uploaded_file is not None:
-        documents = []
-        for pdf in uploaded_file:
-            
-            reader = PdfReader(pdf)
-            meta = reader.metadata
-            i = 0
-            for page in reader.pages:
-                print('\npage : ', page, '\n')
-                documents.append(Document(page_content=page.extract_text(), metadata={'source': meta.author,'page':i}))
-                i =+ 1
-    return documents
+def loads_pdfs(pdfs):
+    docs_list = []
+    for pdf_file in pdfs:
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_path = temp_file.name
+            temp_file.write(pdf_file.read())
+        
+        loader = PyPDFLoader(temp_path)
+        docs = loader.load()
+    return docs
 
 #Establish conversation with the LLM
-def get_conversation_chain(big_chunks_retriever, OPENAI_API_KEY):
-    llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, temperature=0)
+def get_conversation_chain(retriever):
+    llm = ChatOpenAI(temperature=0)
     memory = ConversationBufferMemory(
         memory_key='chat_history', return_messages=True)
     conversation_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
-        retriever=big_chunks_retriever,
+        retriever=retriever,
         memory=memory
     )
     return conversation_chain
@@ -123,15 +122,33 @@ def handle_userinput(user_question):
                 "{{MSG}}", message.content), unsafe_allow_html=True)
 
 #Return documents with metadata
-def metadata_tagging(documents, OPENAI_API_KEY):
-    llm_tagging = ChatOpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
+# def metadata_tagging(documents):
+#     llm_tagging = ChatOpenAI(temperature=0)
+#     document_transformer = create_metadata_tagger(metadata_schema=schema_tagging, llm=llm_tagging)
+#     enhanced_documents = document_transformer.transform_documents(documents)
+#     return enhanced_documents
+
+def metadata_tagging(long_document):
+    llm_tagging = ChatOpenAI(temperature=0)
     document_transformer = create_metadata_tagger(metadata_schema=schema_tagging, llm=llm_tagging)
-    enhanced_documents = document_transformer.transform_documents(documents)
-    return enhanced_documents
+    
+    chunk_size = 3000  # Define the desired chunk size
+    
+    chunks = [long_document[i:i+chunk_size] for i in range(0, len(long_document), chunk_size)]
+    
+    enhanced_chunks = []
+    for chunk in chunks:
+        enhanced_chunk = document_transformer.transform_documents(chunk)
+        enhanced_chunks.append(enhanced_chunk)
+        print("\n\nenhanced_chunks : ",  enhanced_chunks, "\n\n")
+    
+    enhanced_document = "".join(enhanced_chunks)
+    
+    return enhanced_document
 
 #Return the Self_Query retriever
-def self_query_retriever(vectorstore, document_content_description, metadata_field_info, OPENAI_API_KEY):
-    llm_retriever = OpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
+def self_query_retriever(vectorstore, document_content_description, metadata_field_info):
+    llm_retriever = OpenAI(temperature=0)
     retriever = SelfQueryRetriever.from_llm(
         llm_retriever,
         vectorstore,
@@ -142,8 +159,8 @@ def self_query_retriever(vectorstore, document_content_description, metadata_fie
     return retriever
 
 #Vectorize documents into a vectorial dB
-def get_vectordb(OPENAI_API_KEY, texts):
-        embedding = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY, request_timeout=60)
+def get_vectordb(texts):
+        embedding = OpenAIEmbeddings(request_timeout=60)
         vectordb = Chroma.from_documents(documents=texts, 
                             embedding=embedding)
         return vectordb
@@ -172,9 +189,10 @@ def main():
     if st.button("Process"):
         with st.spinner("Processing"):
             # get pdf text
-            documents = load_pdf_documents(pdf_docs)
+            documents = loads_pdfs(pdf_docs)
             #Tag documents
             documents = metadata_tagging(documents)
+            print("\n\ndocument_metadata",documents, "\n\n")
             #Split documents
             texts = split_text(documents)
             #Vectorize documents
