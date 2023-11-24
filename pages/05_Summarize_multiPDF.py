@@ -1,6 +1,6 @@
 from langchain.chains.summarize import load_summarize_chain
 from langchain.document_loaders import PyPDFLoader
-from langchain import OpenAI
+from langchain.llms import OpenAI
 import streamlit as st
 import os
 import tempfile
@@ -55,7 +55,7 @@ def load_pdf_documents(uploaded_file):
 def split_text(text):
         text_splitter = CharacterTextSplitter(
             separator="\n",
-            chunk_size=3000,
+            chunk_size=2000,
             chunk_overlap=300
         )
         texts = text_splitter.create_documents([text])
@@ -76,8 +76,9 @@ def prompt_refine_prompt():
         "------------\n"
         "{text}\n"
         "------------\n"
-        "Given the new context, refine the original summary"
+        "Given the new context, add information and refine the original summary"
         "If the context isn't useful, return the original summary."
+        "ALWAYS finish you summary a conclusion respecting the format :\nConclusion : {{Your conlusion}}"
     )
     refine_prompt = PromptTemplate.from_template(refine_template)
     
