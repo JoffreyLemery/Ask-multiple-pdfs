@@ -11,6 +11,8 @@ import libs.tools as tools
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.prompts import PromptTemplate
+from llama_hub.smart_pdf_loader import SmartPDFLoader
+from langchain.text_splitter import TokenTextSplitter
 
 tools.set_page_config()
 
@@ -34,98 +36,80 @@ class Document:
         self.page_content = page_content
         self.metadata = metadata if metadata is not None else {}
 
-
-#Load through Streamlit
-def load_pdf_documents(uploaded_file):
-    if uploaded_file is not None:
-        documents = []
-        for pdf in uploaded_file:
-                reader = PdfReader(pdf)
-                meta = reader.metadata
-                i = 0
-                for page in reader.pages:
-                    documents.append(Document(page_content=page.extract_text(), metadata={'source': meta.author,'page':i})) 
-                    text+=page.page_content
-                    text= text.replace('\t', ' ')
-                    i =+ 1
-    return documents, text
-
-
-#Split the documents into smaller objects.
-def split_text(text):
-        text_splitter = CharacterTextSplitter(
-            separator="\n",
-            chunk_size=2000,
-            chunk_overlap=300
-        )
-        texts = text_splitter.create_documents([text])
-        return texts
+def splitter(doc):
+    text_splitter = TokenTextSplitter(chunk_size=5000, chunk_overlap=300)
+    documents_split = text_splitter.split_documents(doc)
+    return documents_split
 
 def prompt_refine_prompt():
     
-    prompt_template = """Write a concise summary of the following:
+    prompt_template = """Write a concise and pedagogical summary of the following:
     {text}
-    CONCISE SUMMARY:"""
+    SUMMARY:
+    """
     prompt = PromptTemplate.from_template(prompt_template)
 
     refine_template = (
-        "Your job is to produce a final summary with key learnings\n"
+        "Your job is to produce a clear and pedagogical summary with key learnings\n"
         "We have provided an existing summary up to a certain point: {existing_answer}\n"
-        "We have the opportunity to refine the existing summary"
+        "We have the opportunity to refine the existing summary by adding additional information"
         "(only if needed) with detailed context below.\n"
         "------------\n"
         "{text}\n"
         "------------\n"
-        "Given the new context, add information and refine the original summary"
+        "Given the new context, add information and refine the original summary."
         "If the context isn't useful, return the original summary."
-        "ALWAYS finish you summary a conclusion respecting the format :\nConclusion : {{Your conlusion}}"
+        "Don't forget to ALWAYS FINISH your sentences."
+    
     )
     refine_prompt = PromptTemplate.from_template(refine_template)
     
     return prompt, refine_prompt
 
-def chain(llm,refine_prompt, texts, prompt):
+def chain(llm,refine_prompt, prompt):
     refine_chain = load_summarize_chain(
         llm,
         chain_type="refine",
         question_prompt=prompt,
         refine_prompt=refine_prompt,
         return_intermediate_steps=True,
-    
     )
     return refine_chain
 
+def to_langchain_document(page_content, metadata):
+    document = Document(page_content=page_content, metadata=metadata)
+    return document
+
 def loads_pdfs(pdfs):
-    texts_list = []
+    docs_list = []
+    # llmsherpa_api_url = "https://readers.llmsherpa.com/api/document/developer/parseDocument?renderFormat=all"
+    # pdf_loader = SmartPDFLoader(llmsherpa_api_url=llmsherpa_api_url)
+    
+    
     for pdf_file in pdfs:
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_path = temp_file.name
             temp_file.write(pdf_file.read())
-        
-        loader = PyPDFLoader(temp_path)
-        docs = loader.load()
-        
-        text=""
+            temp_path = temp_file.name
+        # docs = pdf_loader.load_data(temp_path)
+        pdf_loader = PyPDFLoader(temp_path)
+        doc = pdf_loader.load()
         dict={}
         pdf_name = os.path.basename(pdf_file.name)
-        for page in docs:
-            text+=page.page_content
-        text= text.replace('\t', ' ')
         dict.update({'title': pdf_name})
-        dict.update({'text': text})
-
-        texts_list.append(dict)
-
+        dict.update({'doc': doc})
+        docs_list.append(dict)
         # Delete the temporary file
         os.remove(temp_path)
-    return texts_list
+    return docs_list
+        
 
 
 def main():
     load_dotenv()
-    llm = OpenAI(temperature=0)
+    llm = OpenAI(temperature=0.0)
     display_page_title()
     st.write(css, unsafe_allow_html=True)
+    batch_size = 3
 
     st.header("📕📘 Your documents 📙📗")
     pdf_files = st.file_uploader(
@@ -134,15 +118,16 @@ def main():
         with st.spinner("Processing"):
             prompt, refine_prompt = prompt_refine_prompt()
             display_page_results()
-            texts_list = loads_pdfs(pdf_files)
-            print("\n\nDocs : ", texts_list,"\n\n")
-            for i, text in enumerate(texts_list):
-                texts =  split_text(text['text'])
-                refine_chain = chain(llm, refine_prompt, texts, prompt)
-                refine_outputs = refine_chain({'input_documents': texts})
-                summary = refine_outputs['output_text']
+            docs = loads_pdfs(pdf_files)
+            for i, doc in enumerate(docs):
+                documents_split =  splitter(doc['doc'])
+                for j in range(0, len(documents_split), batch_size):
+                    batch_docs = documents_split[j:j+batch_size]
+                    refine_chain = chain(llm, refine_prompt, prompt)
+                    refine_outputs = refine_chain({'input_documents': batch_docs})
+                    summary = refine_outputs['output_text']
                 st.markdown("""---""")
-                st.write(f"Summary for PDF {i+1} : ", text['title'])
+                st.write(f"Summary for PDF {i+1} : ", doc['title'])
                 st.write(summary)
 
 if __name__ == '__main__':
